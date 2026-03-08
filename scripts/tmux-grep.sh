@@ -54,9 +54,9 @@ PREVIEW_CMD="
 
 result=$(cat "${TMPDIR}/index" | fzf \
     --exact \
-    --delimiter=$'\t' \
+    -d '\t' \
     --with-nth=4,5 \
-    --nth=5 \
+    --nth=2 \
     --no-sort \
     --layout=reverse \
     --print-query \
