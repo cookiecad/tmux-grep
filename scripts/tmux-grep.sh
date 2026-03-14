@@ -1,91 +1,109 @@
 #!/usr/bin/env bash
+# Unified tmux session switcher + pane content search.
+# Usage: tmux-grep.sh [--mode sessions|search]
+
 set -euo pipefail
 
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 TMPDIR=$(mktemp -d "/tmp/tmux-grep.XXXXXX")
+export TMPDIR
 trap 'rm -rf "$TMPDIR"' EXIT
 
-# Options (configurable via tmux set -g @grep-*)
-DEPTH=$(tmux show-option -gqv @grep-depth 2>/dev/null || true)
-DEPTH="${DEPTH:--5000}"
+# Parse initial mode
+MODE="sessions"
+for arg in "$@"; do
+    case "$arg" in
+        --mode) shift; MODE="${1:-sessions}" ;;
+        sessions|search) MODE="$arg" ;;
+    esac
+    shift 2>/dev/null || true
+done
+echo "$MODE" > "$TMPDIR/.mode"
+
+# Context lines for search preview
 CONTEXT=$(tmux show-option -gqv @grep-context 2>/dev/null || true)
 CONTEXT="${CONTEXT:-5}"
 
-# Phase 1: Capture all panes' scrollback
-while IFS=$'\t' read -r target window_name pane_cmd; do
-    safe="${target//[:.]/_}"
-    outfile="${TMPDIR}/pane_${safe}"
-
-    tmux capture-pane -p -S "$DEPTH" -t "$target" > "$outfile" 2>/dev/null || continue
-
-    total=$(wc -l < "$outfile")
-    [ "$total" -eq 0 ] && continue
-
-    # Build label: session:window_name (command) if not a shell
-    label="$target $window_name"
-    if [[ "$pane_cmd" != "bash" && "$pane_cmd" != "zsh" && "$pane_cmd" != "fish" ]]; then
-        label="${label} (${pane_cmd})"
+# --- Unified preview: reads mode file to decide behavior ---
+PREVIEW="
+mode=\$(cat '$TMPDIR/.mode' 2>/dev/null || echo sessions);
+line={};
+if [ \"\$mode\" = 'search' ]; then
+    target=\$(echo \"\$line\" | cut -f2);
+    line_num=\$(echo \"\$line\" | cut -f4);
+    file=\"$TMPDIR/pane_\$(echo \"\$target\" | tr ':.' '_')\";
+    if [ -f \"\$file\" ]; then
+        start=\$((line_num - ${CONTEXT})); [ \$start -lt 1 ] && start=1;
+        end=\$((line_num + ${CONTEXT}));
+        awk -v hl=\"\$line_num\" -v s=\"\$start\" -v e=\"\$end\" \\
+            'NR>=s && NR<=e {
+                prefix = (NR==hl) ? \" → \" : \"   \"
+                printf \"%s%4d│ %s\n\", prefix, NR, \$0
+            }' \"\$file\";
     fi
-
-    # Index format: target<TAB>total_lines<TAB>line_num<TAB>label<TAB>content
-    # Skip blank lines to reduce noise
-    awk -v t="$target" -v total="$total" -v label="$label" \
-        'NF > 0 {printf "%s\t%s\t%d\t%s\t%s\n", t, total, NR, label, $0}' "$outfile"
-done < <(tmux list-panes -a -F '#{session_name}:#{window_index}.#{pane_index}	#{window_name}	#{pane_current_command}') \
-> "${TMPDIR}/index"
-
-if [ ! -s "${TMPDIR}/index" ]; then
-    echo "No pane content found."
-    exit 0
+else
+    tag=\$(echo \"\$line\" | cut -f1);
+    target=\$(echo \"\$line\" | cut -f2);
+    if [ \"\$tag\" = 'W' ]; then
+        tmux capture-pane -pJ -t \"\${target}.0\" 2>/dev/null || echo 'No preview';
+    else
+        tmux capture-pane -pJ -t \"\$target\" 2>/dev/null || echo 'No preview';
+    fi
 fi
-
-# Phase 2: fzf selection
-# Preview shows context around the matched line
-PREVIEW_CMD="
-    file=\"${TMPDIR}/pane_\$(echo {1} | tr ':.' '_')\"
-    line={3}
-    start=\$((line - ${CONTEXT})); [ \$start -lt 1 ] && start=1
-    end=\$((line + ${CONTEXT}))
-    awk -v hl=\"\$line\" -v s=\"\$start\" -v e=\"\$end\" \\
-        'NR>=s && NR<=e {
-            prefix = (NR==hl) ? \" → \" : \"   \"
-            printf \"%s%4d│ %s\n\", prefix, NR, \$0
-        }' \"\$file\"
 "
 
-result=$(cat "${TMPDIR}/index" | fzf \
-    --exact \
-    -d '\t' \
-    --with-nth=4,5 \
-    --nth=2 \
+# --- Reload helper scripts that also update the mode file ---
+RELOAD_SESSIONS="bash '$SCRIPT_DIR/sessions.sh' sessions && echo sessions > '$TMPDIR/.mode'"
+RELOAD_WINDOWS="bash '$SCRIPT_DIR/sessions.sh' windows && echo windows > '$TMPDIR/.mode'"
+RELOAD_SEARCH="bash '$SCRIPT_DIR/search.sh' --index-dir '$TMPDIR' && echo search > '$TMPDIR/.mode'"
+RELOAD_SESSIONS_RESET="bash '$SCRIPT_DIR/sessions.sh' sessions --reset && echo sessions > '$TMPDIR/.mode'"
+KILL_TARGET="bash '$SCRIPT_DIR/kill-target.sh' {}"
+# Reload current mode after kill
+RELOAD_CURRENT="mode=\$(cat '$TMPDIR/.mode' 2>/dev/null || echo sessions); bash '$SCRIPT_DIR/sessions.sh' \$mode"
+
+# --- Set initial state based on mode ---
+if [ "$MODE" = "search" ]; then
+    INITIAL_DATA=$("$SCRIPT_DIR/search.sh" --index-dir "$TMPDIR")
+    INITIAL_PROMPT="Search> "
+    INITIAL_HEADER="Search panes | ctrl-s/btab: sessions | tab: windows | ctrl-r: refresh | ctrl-x: kill"
+else
+    INITIAL_DATA=$("$SCRIPT_DIR/sessions.sh" "$MODE")
+    if [ "$MODE" = "windows" ]; then
+        INITIAL_PROMPT="Window> "
+        INITIAL_HEADER="Sessions + Windows | btab: sessions | ctrl-/: search | ctrl-r: refresh | ctrl-x: kill"
+    else
+        INITIAL_PROMPT="Session> "
+        INITIAL_HEADER="Sessions | tab: windows | ctrl-/: search | ctrl-r: refresh | ctrl-x: kill"
+    fi
+fi
+
+[ -z "$INITIAL_DATA" ] && { echo "No data found."; exit 0; }
+
+# --- Run fzf ---
+RESULT=$(echo "$INITIAL_DATA" | fzf \
+    --ansi \
     --no-sort \
     --layout=reverse \
+    --delimiter=$'\t' \
+    --with-nth=3.. \
+    --header="$INITIAL_HEADER" \
+    --prompt="$INITIAL_PROMPT" \
+    --preview="$PREVIEW" \
+    --preview-window='right:45%:wrap' \
     --print-query \
-    --header='Search all tmux panes (prefix+/ to reopen)' \
-    --preview="$PREVIEW_CMD" \
-    --preview-window='up:12:wrap' \
-    --bind='ctrl-s:toggle-sort' \
+    --bind="j:down,k:up,ctrl-j:preview-down,ctrl-k:preview-up" \
+    --bind="tab:reload($RELOAD_WINDOWS)+change-prompt(Window> )+change-header(Sessions + Windows | btab: sessions | ctrl-/: search | ctrl-r: refresh | ctrl-x: kill)" \
+    --bind="btab:reload($RELOAD_SESSIONS)+change-prompt(Session> )+change-header(Sessions | tab: windows | ctrl-/: search | ctrl-r: refresh | ctrl-x: kill)" \
+    --bind="ctrl-/:reload($RELOAD_SEARCH)+change-prompt(Search> )+change-header(Search panes | ctrl-s/btab: sessions | tab: windows | ctrl-r: refresh | ctrl-x: kill)" \
+    --bind="ctrl-s:reload($RELOAD_SESSIONS)+change-prompt(Session> )+change-header(Sessions | tab: windows | ctrl-/: search | ctrl-r: refresh | ctrl-x: kill)" \
+    --bind="ctrl-r:reload($RELOAD_SESSIONS_RESET)+change-prompt(Session> )+change-header(Sessions | tab: windows | ctrl-/: search | ctrl-r: refresh | ctrl-x: kill)" \
+    --bind="ctrl-x:execute($KILL_TARGET)+reload($RELOAD_CURRENT)" \
 ) || exit 0
 
-# Phase 3: Parse selection and navigate to match
-query=$(head -1 <<< "$result")
-selection=$(tail -1 <<< "$result")
+# Parse: first line = query, last line = selection
+QUERY=$(head -1 <<< "$RESULT")
+SELECTION=$(tail -1 <<< "$RESULT")
 
-IFS=$'\t' read -r target total line_num label content <<< "$selection"
+[ -z "$SELECTION" ] && exit 0
 
-# Switch to the target pane
-tmux select-window -t "${target%.*}"
-tmux select-pane -t "$target"
-
-# Enter copy-mode and position at the exact match line
-tmux copy-mode -t "$target"
-tmux send-keys -t "$target" -X history-top
-
-# Position one line above the match, then search-forward finds it
-if [ "$line_num" -gt 1 ]; then
-    tmux send-keys -t "$target" -X -N "$((line_num - 2))" cursor-down
-fi
-
-# Search forward to highlight the match and enable n/N navigation
-if [ -n "$query" ]; then
-    tmux send-keys -t "$target" -X search-forward "$query"
-fi
+exec bash "$SCRIPT_DIR/handle-selection.sh" "$QUERY" "$SELECTION"
