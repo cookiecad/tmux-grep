@@ -16,27 +16,14 @@ case "$MODE" in
     S)
         current=$(tmux display-message -p '#{session_name}' 2>/dev/null || true)
         if [ "$TARGET" = "$current" ]; then
-            echo "Cannot kill current session."
-            sleep 1
             exit 0
         fi
-        printf "Kill session '%s'? [y/N] " "$TARGET"
-        read -r -n1 answer
-        echo
-        if [[ "$answer" =~ ^[yY]$ ]]; then
-            tmux kill-session -t "$TARGET" 2>/dev/null && echo "Killed session '$TARGET'." || echo "Failed."
-        fi
+        tmux kill-session -t "$TARGET" 2>/dev/null || true
         ;;
     W)
-        printf "Kill window '%s'? [y/N] " "$TARGET"
-        read -r -n1 answer
-        echo
-        if [[ "$answer" =~ ^[yY]$ ]]; then
-            tmux kill-window -t "$TARGET" 2>/dev/null && echo "Killed window '$TARGET'." || echo "Failed."
-        fi
+        tmux kill-window -t "$TARGET" 2>/dev/null || true
         ;;
     *)
         exit 0
         ;;
 esac
-sleep 0.5

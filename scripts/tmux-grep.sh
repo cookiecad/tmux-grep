@@ -65,15 +65,15 @@ RELOAD_CURRENT="mode=\$(cat '$TMPDIR/.mode' 2>/dev/null || echo sessions); bash 
 if [ "$MODE" = "search" ]; then
     INITIAL_DATA=$("$SCRIPT_DIR/search.sh" --index-dir "$TMPDIR")
     INITIAL_PROMPT="Search> "
-    INITIAL_HEADER="Search panes | ctrl-s/btab: sessions | tab: windows | ctrl-r: refresh | ctrl-x: kill"
+    INITIAL_HEADER="Search panes | ctrl-s/btab: sessions | tab: windows | ctrl-r: refresh | ctrl-x: kill | ctrl-d: cleanup"
 else
     INITIAL_DATA=$("$SCRIPT_DIR/sessions.sh" "$MODE")
     if [ "$MODE" = "windows" ]; then
         INITIAL_PROMPT="Window> "
-        INITIAL_HEADER="Sessions + Windows | btab: sessions | ctrl-/: search | ctrl-r: refresh | ctrl-x: kill"
+        INITIAL_HEADER="Sessions + Windows | btab: sessions | ctrl-/: search | ctrl-r: refresh | ctrl-x: kill | ctrl-d: cleanup"
     else
         INITIAL_PROMPT="Session> "
-        INITIAL_HEADER="Sessions | tab: windows | ctrl-/: search | ctrl-r: refresh | ctrl-x: kill"
+        INITIAL_HEADER="Sessions | tab: windows | ctrl-/: search | ctrl-r: refresh | ctrl-x: kill | ctrl-d: cleanup"
     fi
 fi
 
@@ -83,6 +83,7 @@ fi
 RESULT=$(echo "$INITIAL_DATA" | fzf \
     --ansi \
     --no-sort \
+    --exact \
     --layout=reverse \
     --delimiter=$'\t' \
     --with-nth=3.. \
@@ -97,7 +98,8 @@ RESULT=$(echo "$INITIAL_DATA" | fzf \
     --bind="ctrl-/:reload($RELOAD_SEARCH)+change-prompt(Search> )+change-header(Search panes | ctrl-s/btab: sessions | tab: windows | ctrl-r: refresh | ctrl-x: kill)" \
     --bind="ctrl-s:reload($RELOAD_SESSIONS)+change-prompt(Session> )+change-header(Sessions | tab: windows | ctrl-/: search | ctrl-r: refresh | ctrl-x: kill)" \
     --bind="ctrl-r:reload($RELOAD_SESSIONS_RESET)+change-prompt(Session> )+change-header(Sessions | tab: windows | ctrl-/: search | ctrl-r: refresh | ctrl-x: kill)" \
-    --bind="ctrl-x:execute($KILL_TARGET)+reload($RELOAD_CURRENT)" \
+    --bind="ctrl-x:execute-silent($KILL_TARGET)+reload($RELOAD_CURRENT)" \
+    --bind="ctrl-d:become(bash '$SCRIPT_DIR/cleanup-mode.sh')" \
 ) || exit 0
 
 # Parse: first line = query, last line = selection
