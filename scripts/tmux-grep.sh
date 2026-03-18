@@ -92,7 +92,7 @@ RESULT=$(echo "$INITIAL_DATA" | fzf \
     --preview="$PREVIEW" \
     --preview-window='right:45%:wrap' \
     --print-query \
-    --bind="j:down,k:up,ctrl-j:preview-down,ctrl-k:preview-up" \
+    --bind="ctrl-j:preview-down,ctrl-k:preview-up" \
     --bind="tab:reload($RELOAD_WINDOWS)+change-prompt(Window> )+change-header(Sessions + Windows | btab: sessions | ctrl-/: search | ctrl-r: refresh | ctrl-x: kill)" \
     --bind="btab:reload($RELOAD_SESSIONS)+change-prompt(Session> )+change-header(Sessions | tab: windows | ctrl-/: search | ctrl-r: refresh | ctrl-x: kill)" \
     --bind="ctrl-/:reload($RELOAD_SEARCH)+change-prompt(Search> )+change-header(Search panes | ctrl-s/btab: sessions | tab: windows | ctrl-r: refresh | ctrl-x: kill)" \

@@ -31,9 +31,11 @@ case "$MODE" in
         target="$FIELD2"
         line_num=$(echo "$SELECTION" | cut -f4)
 
-        # Switch to the target pane
+        # Switch to the target session/window/pane
+        session="${target%%:*}"
         tmux select-window -t "${target%.*}"
         tmux select-pane -t "$target"
+        tmux switch-client -t "$session"
 
         # Enter copy-mode and position at the match line
         tmux copy-mode -t "$target"
