@@ -26,10 +26,18 @@ case "$MODE" in
         tmux select-window -t "$FIELD2"
         tmux switch-client -t "$session"
         ;;
+    H|E)
+        # Group header or expand marker: switch to that window/pane
+        session="${FIELD2%%:*}"
+        window_target="${FIELD2%.*}"
+        tmux select-window -t "$window_target"
+        tmux select-pane -t "$FIELD2"
+        tmux switch-client -t "$session"
+        ;;
     G)
         # Grep: navigate to exact line in pane
-        target="$FIELD2"
-        line_num=$(echo "$SELECTION" | cut -f4)
+        target="${FIELD2%|*}"
+        line_num="${FIELD2#*|}"
 
         # Switch to the target session/window/pane
         session="${target%%:*}"

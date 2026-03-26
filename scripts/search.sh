@@ -1,5 +1,6 @@
 #!/usr/bin/env bash
-# Generates pane content search index. Outputs TSV lines with mode tag "G".
+# Builds pane content search index. Captures scrollback to files and writes a manifest.
+# No stdout — filter.sh handles display.
 # Usage: search.sh --index-dir DIR
 
 set -euo pipefail
@@ -23,7 +24,11 @@ mkdir -p "$INDEX_DIR"
 DEPTH=$(tmux show-option -gqv @grep-depth 2>/dev/null || true)
 DEPTH="${DEPTH:--5000}"
 
-# Capture all panes' scrollback and build index
+# Clear previous manifest and expanded state
+> "$INDEX_DIR/.manifest"
+> "$INDEX_DIR/.expanded"
+
+# Capture all panes' scrollback and build manifest
 while IFS=$'\t' read -r target window_name pane_cmd; do
     safe="${target//[:.]/_}"
     outfile="${INDEX_DIR}/pane_${safe}"
@@ -33,13 +38,8 @@ while IFS=$'\t' read -r target window_name pane_cmd; do
     total=$(wc -l < "$outfile")
     [ "$total" -eq 0 ] && continue
 
-    # Build label
-    label="$target $window_name"
-    if [[ "$pane_cmd" != "bash" && "$pane_cmd" != "zsh" && "$pane_cmd" != "fish" ]]; then
-        label="${label} (${pane_cmd})"
-    fi
+    pane_idx="${target##*.}"
 
-    # Output: G<TAB>target<TAB>total_lines<TAB>line_num<TAB>label<TAB>content
-    awk -v t="$target" -v total="$total" -v label="$label" \
-        'NF > 0 {printf "G\t%s\t%s\t%d\t%s\t%s\n", t, total, NR, label, $0}' "$outfile"
+    # Manifest: target, window_name, pane_cmd, pane_idx
+    printf '%s\t%s\t%s\t%s\n' "$target" "$window_name" "$pane_cmd" "$pane_idx" >> "$INDEX_DIR/.manifest"
 done < <(tmux list-panes -a -F '#{session_name}:#{window_index}.#{pane_index}	#{window_name}	#{pane_current_command}')
