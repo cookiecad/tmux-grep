@@ -60,7 +60,7 @@ fi
 
 # --- Change handler: mode-aware reload on every keystroke ---
 # In search mode: run filter.sh. In other modes: re-emit cached data for fzf's built-in filter.
-CHANGE_CMD="mode=\$(cat '$TMPDIR/.mode' 2>/dev/null || echo sessions); if [ \"\$mode\" = 'search' ]; then bash '$SCRIPT_DIR/filter.sh' --dir '$TMPDIR' --query {q}; else cat '$TMPDIR/.\${mode}-cache' 2>/dev/null; fi"
+CHANGE_CMD="mode=\$(cat '$TMPDIR/.mode' 2>/dev/null || echo sessions); if [ \"\$mode\" = 'search' ]; then bash '$SCRIPT_DIR/filter.sh' --dir '$TMPDIR' --query {q}; else cat \"$TMPDIR/.\${mode}-cache\" 2>/dev/null; fi"
 
 # --- Mode switch helpers ---
 SWITCH_TO_SESSIONS="bash '$SCRIPT_DIR/sessions.sh' sessions | tee '$TMPDIR/.sessions-cache' && echo sessions > '$TMPDIR/.mode'"
@@ -71,7 +71,7 @@ SWITCH_SESSIONS_RESET="bash '$SCRIPT_DIR/sessions.sh' sessions --reset | tee '$T
 KILL_TARGET="bash '$SCRIPT_DIR/kill-target.sh' {}"
 
 # Reload current mode after kill
-RELOAD_AFTER_KILL="mode=\$(cat '$TMPDIR/.mode' 2>/dev/null || echo sessions); if [ \"\$mode\" = 'search' ]; then bash '$SCRIPT_DIR/search.sh' --index-dir '$TMPDIR' && bash '$SCRIPT_DIR/filter.sh' --dir '$TMPDIR' --query {q}; else bash '$SCRIPT_DIR/sessions.sh' \"\$mode\" | tee '$TMPDIR/.\${mode}-cache'; fi"
+RELOAD_AFTER_KILL="mode=\$(cat '$TMPDIR/.mode' 2>/dev/null || echo sessions); if [ \"\$mode\" = 'search' ]; then bash '$SCRIPT_DIR/search.sh' --index-dir '$TMPDIR' && bash '$SCRIPT_DIR/filter.sh' --dir '$TMPDIR' --query {q}; else bash '$SCRIPT_DIR/sessions.sh' \"\$mode\" | tee \"$TMPDIR/.\${mode}-cache\"; fi"
 
 # Headers
 HDR_SESSIONS="Sessions | tab: windows | ctrl-/: search | ctrl-r: refresh | ctrl-x: kill | ctrl-d: cleanup"
