@@ -1,54 +1,46 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-# dev-popup: find the dev server pane for the current working directory
+# dev-popup: find the pane running "pnpm dev" for the current project
 # and show its recent output in a tmux popup via less.
+#
+# Detection: checks each pane's child processes for "pnpm dev" in the
+# command line. Matches panes in the same directory or subdirectories.
 
-# Dev server processes — highest priority match
-DEV_SERVERS="^(node|pnpm|npm|vite|next|tsx|ts-node|bun|deno)$"
-# Non-dev tools to skip (editors, TUIs, agents)
-SKIP="^(zsh|bash|fish|sh|dash|nvim|vim|vi|claude|lazygit|htop|less|man|git)$"
-
-# Get the invoking pane's working directory and ID
 CALLER_PANE="$1"
 CWD=$(tmux display-message -t "$CALLER_PANE" -p '#{pane_current_path}')
 PROJECT=$(basename "$CWD")
 
-# Find dev server pane: same directory tree, prefer dev server processes
-# Two passes: first look for known dev servers, then any non-skipped process
+# Check if a pane's process tree contains "pnpm dev"
+has_pnpm_dev() {
+    local pane_pid
+    pane_pid=$(tmux display-message -t "$1" -p '#{pane_pid}')
+    # Check direct children for pnpm dev in their cmdline
+    for child in $(pgrep -P "$pane_pid" 2>/dev/null); do
+        if tr '\0' ' ' < "/proc/$child/cmdline" 2>/dev/null | grep -q "pnpm dev"; then
+            return 0
+        fi
+    done
+    return 1
+}
+
 TARGET=""
-FALLBACK=""
-while IFS=$'\t' read -r pane_id pane_path pane_cmd; do
+while IFS=$'\t' read -r pane_id pane_path; do
     [[ "$pane_id" == "$CALLER_PANE" ]] && continue
-    # Match CWD or any subdirectory of CWD
     [[ "$pane_path" != "$CWD" && "$pane_path" != "$CWD/"* ]] && continue
 
-    if [[ "$pane_cmd" =~ $DEV_SERVERS ]]; then
+    if has_pnpm_dev "$pane_id"; then
         TARGET="$pane_id"
         break
-    elif [[ ! "$pane_cmd" =~ $SKIP && -z "$FALLBACK" ]]; then
-        FALLBACK="$pane_id"
     fi
-done < <(tmux list-panes -a -F '#{pane_id}	#{pane_current_path}	#{pane_current_command}')
-
-TARGET="${TARGET:-$FALLBACK}"
+done < <(tmux list-panes -a -F '#{pane_id}	#{pane_current_path}')
 
 if [[ -z "$TARGET" ]]; then
-    echo "No dev server found for: $PROJECT"
-    echo ""
-    echo "Looking for a non-shell process in: $CWD"
-    echo ""
-    echo "Running panes in this directory:"
-    while IFS=$'\t' read -r pane_id pane_path pane_cmd; do
-        [[ "$pane_path" == "$CWD" ]] && echo "  $pane_id  $pane_cmd"
-    done < <(tmux list-panes -a -F '#{pane_id}	#{pane_current_path}	#{pane_current_command}')
+    echo "No pnpm dev found for: $PROJECT ($CWD)"
     echo ""
     read -n 1 -s -r -p "Press any key to close..."
     exit 0
 fi
 
-# Capture the pane's scrollback with ANSI colors and show in less
-# -S 500: capture up to 500 lines of scrollback history
-# -e: preserve escape sequences (colors)
-# -p: print to stdout
+# Capture with ANSI colors and show in less (scrollable, q to dismiss)
 tmux capture-pane -t "$TARGET" -e -p -S -500 | less -R +G
