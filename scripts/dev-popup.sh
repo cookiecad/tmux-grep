@@ -42,7 +42,6 @@ if [[ -z "$TARGET" ]]; then
     exit 0
 fi
 
-# Capture with ANSI colors, display in popup's scrollback
-# Use prefix+[ for copy mode (scroll/select/yank), any key to close
-tmux capture-pane -t "$TARGET" -e -p -S -500
-read -n 1 -s -r
+# Capture with ANSI colors, show in less with mouse scroll support
+# q to close, Shift+drag to select/copy
+tmux capture-pane -t "$TARGET" -e -p -S -500 | less -R +G --mouse
