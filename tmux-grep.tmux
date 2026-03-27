@@ -15,3 +15,9 @@ SEARCH_KEY=$(tmux show-option -gqv @grep-key 2>/dev/null)
 SEARCH_KEY="${SEARCH_KEY:-/}"
 tmux bind-key "$SEARCH_KEY" display-popup -E -w 90% -h 80% \
     "${CURRENT_DIR}/scripts/tmux-grep.sh --mode search"
+
+# Dev server popup: prefix + d
+DEV_POPUP_KEY=$(tmux show-option -gqv @grep-dev-popup-key 2>/dev/null)
+DEV_POPUP_KEY="${DEV_POPUP_KEY:-d}"
+tmux bind-key "$DEV_POPUP_KEY" run-shell -b \
+    "tmux display-popup -E -w 90% -h 80% '${CURRENT_DIR}/scripts/dev-popup.sh #{pane_id}'"
