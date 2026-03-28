@@ -33,6 +33,54 @@ fi
 build_agent_map
 build_title_cache
 
+# Collapse grouped sessions to a single visible representative. Prefer the
+# group's base session (session_name == session_group). If that base session no
+# longer exists, fall back to the most attached/active remaining member.
+declare -a SESSION_ROWS=()
+declare -a VISIBLE_KEYS=()
+declare -A VISIBLE_KEY_SEEN
+declare -A GROUP_ROOT_EXISTS
+declare -A GROUP_REP_SESSION
+declare -A GROUP_WINDOWS
+declare -A GROUP_ANY_ATTACHED
+declare -A GROUP_REP_ATTACHED
+declare -A GROUP_REP_ACTIVITY
+
+while IFS=$'\t' read -r sname swindows sattached sactivity sgroup; do
+    SESSION_ROWS+=("${sname}"$'\t'"${swindows}"$'\t'"${sattached}"$'\t'"${sactivity}"$'\t'"${sgroup}")
+
+    key="${sgroup:-$sname}"
+    if [ -z "${VISIBLE_KEY_SEEN[$key]+x}" ]; then
+        VISIBLE_KEYS+=("$key")
+        VISIBLE_KEY_SEEN["$key"]=1
+    fi
+
+    if [ -n "$sgroup" ] && [ "$sname" = "$sgroup" ]; then
+        GROUP_ROOT_EXISTS["$sgroup"]=1
+    fi
+    if [ "$sattached" -gt 0 ]; then
+        GROUP_ANY_ATTACHED["$key"]=1
+    fi
+done < <(tmux list-sessions -F '#{session_name}	#{session_windows}	#{session_attached}	#{session_activity}	#{session_group}' 2>/dev/null)
+
+for row in "${SESSION_ROWS[@]}"; do
+    IFS=$'\t' read -r sname swindows sattached sactivity sgroup <<< "$row"
+    key="${sgroup:-$sname}"
+
+    if [ -n "$sgroup" ] && [ -n "${GROUP_ROOT_EXISTS[$key]+x}" ]; then
+        [ "$sname" = "$key" ] || continue
+    fi
+
+    if [ -z "${GROUP_REP_SESSION[$key]+x}" ] || \
+       [ "$sattached" -gt "${GROUP_REP_ATTACHED[$key]:-0}" ] || \
+       { [ "$sattached" -eq "${GROUP_REP_ATTACHED[$key]:-0}" ] && [ "$sactivity" -gt "${GROUP_REP_ACTIVITY[$key]:-0}" ]; }; then
+        GROUP_REP_SESSION["$key"]="$sname"
+        GROUP_WINDOWS["$key"]="$swindows"
+        GROUP_REP_ATTACHED["$key"]="$sattached"
+        GROUP_REP_ACTIVITY["$key"]="$sactivity"
+    fi
+done
+
 # Build pane-level agent info
 declare -A PANE_AGENTS
 declare -A SESSION_HAS_AGENT
@@ -101,22 +149,22 @@ truncate_title() {
 }
 
 emit_session_line() {
-    local name="$1" windows="$2" attached="$3"
+    local display_name="$1" target_name="$2" windows="$3" attached="$4"
 
     _ssh=""
-    is_ssh_session "$name" && _ssh=" [ssh]"
+    is_ssh_session "$target_name" && _ssh=" [ssh]"
 
-    if [ -n "${SESSION_HAS_AGENT[$name]+x}" ]; then
-        _status=$(get_agent_status "$name")
+    if [ -n "${SESSION_HAS_AGENT[$target_name]+x}" ]; then
+        _status=$(get_agent_status "$target_name")
         [ -z "$_status" ] && _status="done"
         _wait_info=""
-        [ "$_status" = "wait" ] && _wait_info=$(get_wait_info "$name")
+        [ "$_status" = "wait" ] && _wait_info=$(get_wait_info "$target_name")
         _status_display=$(format_status "$_status" "$_wait_info")
     else
         _status_display=$(format_status "" "")
     fi
 
-    _title=$(get_agent_title_for_session "$name")
+    _title=$(get_agent_title_for_session "$target_name")
     _title_display=""
     if [ -n "$_title" ]; then
         _title=$(truncate_title "$_title" 45)
@@ -124,18 +172,28 @@ emit_session_line() {
     fi
 
     _display=$(printf "%-18s %2s win  %-10s %b%s%s" \
-        "$name" "$windows" "$attached" "$_status_display" "$_ssh" "$_title_display")
+        "$display_name" "$windows" "$attached" "$_status_display" "$_ssh" "$_title_display")
 
-    printf 'S\t%s\t%s\n' "$name" "$_display"
+    printf 'S\t%s\t%s\n' "$target_name" "$_display"
 }
 
 if [ "$MODE" = "sessions" ]; then
-    while IFS=$'\t' read -r name windows attached; do
-        emit_session_line "$name" "$windows" "$attached"
-    done < <(tmux list-sessions -F '#{session_name}	#{session_windows}	#{?session_attached,(attached),}' 2>/dev/null)
+    for key in "${VISIBLE_KEYS[@]}"; do
+        target="${GROUP_REP_SESSION[$key]:-}"
+        [ -z "$target" ] && continue
+        attached=""
+        [ -n "${GROUP_ANY_ATTACHED[$key]+x}" ] && attached="(attached)"
+        emit_session_line "$key" "$target" "${GROUP_WINDOWS[$key]}" "$attached"
+    done
 
 elif [ "$MODE" = "windows" ]; then
-    while IFS=$'\t' read -r sess_name sess_windows sess_attached; do
+    for display_name in "${VISIBLE_KEYS[@]}"; do
+        sess_name="${GROUP_REP_SESSION[$display_name]:-}"
+        [ -z "$sess_name" ] && continue
+        sess_windows="${GROUP_WINDOWS[$display_name]}"
+        sess_attached=""
+        [ -n "${GROUP_ANY_ATTACHED[$display_name]+x}" ] && sess_attached="(attached)"
+
         # Session header
         _ssh=""
         is_ssh_session "$sess_name" && _ssh=" [ssh]"
@@ -151,7 +209,7 @@ elif [ "$MODE" = "windows" ]; then
         fi
 
         _header=$(printf "\033[1m%-18s\033[0m %2s win  %-10s %b%s" \
-            "$sess_name" "$sess_windows" "$sess_attached" "$_status_display" "$_ssh")
+            "$display_name" "$sess_windows" "$sess_attached" "$_status_display" "$_ssh")
         printf 'S\t%s\t%s\n' "$sess_name" "$_header"
 
         # Windows — aligned table: address  name  process  dir  title
@@ -197,9 +255,9 @@ elif [ "$MODE" = "windows" ]; then
             fi
 
             _win_display=$(printf "  %-22s %-13s %-8s %-25s %s" \
-                "${sess_name}:${win_idx}" "$win_name" "$_cmd_display" "$_dir" "$_title_display")
+                "${display_name}:${win_idx}" "$win_name" "$_cmd_display" "$_dir" "$_title_display")
 
             printf 'W\t%s:%s\t%s\n' "$sess_name" "$win_idx" "$_win_display"
         done < <(tmux list-windows -t "$sess_name" -F '#{window_index}	#{window_name}	#{pane_current_command}	#{pane_current_path}' 2>/dev/null)
-    done < <(tmux list-sessions -F '#{session_name}	#{session_windows}	#{?session_attached,(attached),}' 2>/dev/null)
+    done
 fi
