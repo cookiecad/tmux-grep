@@ -46,5 +46,5 @@ fi
 # Open in editor for full scroll/select/copy support.
 TMPFILE=$(mktemp /tmp/dev-popup.XXXXXX)
 trap 'rm -f "$TMPFILE"' EXIT
-tmux capture-pane -t "$TARGET" -e -p -S -500 > "$TMPFILE"
+tmux capture-pane -t "$TARGET" -p -S -500 > "$TMPFILE"
 "${EDITOR:-vim}" -R +$ "$TMPFILE"
