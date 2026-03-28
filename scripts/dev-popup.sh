@@ -42,6 +42,9 @@ if [[ -z "$TARGET" ]]; then
     exit 0
 fi
 
-# Capture with ANSI colors, show in less with mouse scroll support
-# q to close, Shift+drag to select/copy
-tmux capture-pane -t "$TARGET" -e -p -S -500 | less -R +G --mouse
+# Copy-mode doesn't work in tmux popups (confirmed tmux limitation).
+# Open in editor for full scroll/select/copy support.
+TMPFILE=$(mktemp /tmp/dev-popup.XXXXXX)
+trap 'rm -f "$TMPFILE"' EXIT
+tmux capture-pane -t "$TARGET" -e -p -S -500 > "$TMPFILE"
+"${EDITOR:-vim}" -R +$ "$TMPFILE"
