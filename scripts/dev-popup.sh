@@ -43,8 +43,8 @@ if [[ -z "$TARGET" ]]; then
 fi
 
 # Copy-mode doesn't work in tmux popups (confirmed tmux limitation).
-# Open in editor for full scroll/select/copy support.
+# Use nvim terminal buffer for color + scroll + yank. :q to close.
 TMPFILE=$(mktemp /tmp/dev-popup.XXXXXX)
 trap 'rm -f "$TMPFILE"' EXIT
-tmux capture-pane -t "$TARGET" -p -S -500 > "$TMPFILE"
-"${EDITOR:-vim}" -R +$ "$TMPFILE"
+tmux capture-pane -t "$TARGET" -e -p -S -500 > "$TMPFILE"
+nvim +"terminal cat $TMPFILE" +"normal G"
