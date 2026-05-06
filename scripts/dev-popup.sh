@@ -7,7 +7,7 @@ set -euo pipefail
 # Detection: checks each pane's child processes for "pnpm dev" in the
 # command line. Matches panes in the same directory or subdirectories.
 
-CALLER_PANE="$1"
+CALLER_PANE="${1:-$(tmux display-message -p '#{pane_id}')}"
 CWD=$(tmux display-message -t "$CALLER_PANE" -p '#{pane_current_path}')
 PROJECT=$(basename "$CWD")
 

@@ -20,4 +20,4 @@ tmux bind-key "$SEARCH_KEY" display-popup -E -w 90% -h 80% \
 DEV_POPUP_KEY=$(tmux show-option -gqv @grep-dev-popup-key 2>/dev/null)
 DEV_POPUP_KEY="${DEV_POPUP_KEY:-d}"
 tmux bind-key "$DEV_POPUP_KEY" display-popup -E -w 90% -h 80% \
-    "${CURRENT_DIR}/scripts/dev-popup.sh #{pane_id}"
+    "${CURRENT_DIR}/scripts/dev-popup.sh"
