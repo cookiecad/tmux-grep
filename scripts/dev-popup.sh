@@ -47,4 +47,4 @@ fi
 TMPFILE=$(mktemp /tmp/dev-popup.XXXXXX)
 trap 'rm -f "$TMPFILE"' EXIT
 tmux capture-pane -t "$TARGET" -e -p -S -500 > "$TMPFILE"
-nvim +"terminal cat $TMPFILE" +"normal G"
+"$HOME/.local/bin/nvim" +"terminal cat $TMPFILE" +"normal G"
