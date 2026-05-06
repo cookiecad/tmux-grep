@@ -81,13 +81,13 @@ HDR_SEARCH="Search panes | ctrl-s/btab: sessions | tab: windows | ctrl-r: refres
 # --- Set initial state based on mode ---
 if [ "$MODE" = "search" ]; then
     "$SCRIPT_DIR/search.sh" --index-dir "$TMPDIR"
-    INITIAL_DATA=$("$SCRIPT_DIR/filter.sh" --dir "$TMPDIR" --query "")
+    "$SCRIPT_DIR/filter.sh" --dir "$TMPDIR" --query "" > "$TMPDIR/.initial-data"
     INITIAL_PROMPT="Search> "
     INITIAL_HEADER="$HDR_SEARCH"
     INITIAL_DISABLED="--disabled"
 else
-    INITIAL_DATA=$("$SCRIPT_DIR/sessions.sh" "$MODE")
-    echo "$INITIAL_DATA" > "$TMPDIR/.${MODE}-cache"
+    "$SCRIPT_DIR/sessions.sh" "$MODE" > "$TMPDIR/.${MODE}-cache"
+    cp "$TMPDIR/.${MODE}-cache" "$TMPDIR/.initial-data"
     INITIAL_DISABLED=""
     if [ "$MODE" = "windows" ]; then
         INITIAL_PROMPT="Window> "
@@ -98,10 +98,12 @@ else
     fi
 fi
 
-[ -z "$INITIAL_DATA" ] && { echo "No data found."; exit 0; }
+[ ! -s "$TMPDIR/.initial-data" ] && { echo "No data found."; exit 0; }
 
 # --- Run fzf ---
-RESULT=$(echo "$INITIAL_DATA" | fzf \
+# Read from a file (not a pipe) so a fast "accept" before fzf finishes reading
+# stdin doesn't SIGPIPE the upstream writer and trip pipefail.
+RESULT=$(fzf \
     --ansi \
     --no-sort \
     --layout=reverse \
@@ -125,7 +127,7 @@ RESULT=$(echo "$INITIAL_DATA" | fzf \
     --bind="right:execute-silent(bash '$SCRIPT_DIR/toggle-expand.sh' E {2} '$TMPDIR')+reload(bash '$SCRIPT_DIR/filter.sh' --dir '$TMPDIR' --query {q})" \
     --bind="left:execute-silent(bash '$SCRIPT_DIR/toggle-expand.sh' H {2} '$TMPDIR')+reload(bash '$SCRIPT_DIR/filter.sh' --dir '$TMPDIR' --query {q})" \
     --bind="ctrl-d:become(bash '$SCRIPT_DIR/cleanup-mode.sh')" \
-) || exit 0
+    < "$TMPDIR/.initial-data") || exit 0
 
 # Parse: first line = query, last line = selection
 QUERY=$(head -1 <<< "$RESULT")
